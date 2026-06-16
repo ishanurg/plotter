@@ -1,0 +1,1182 @@
+import tkinter as tk
+from tkinter import filedialog, messagebox, ttk
+import numpy as np
+import pandas as pd
+import os
+import math
+
+# ------------------------------------------------------------------------
+# 1. Global Theme Architecture
+# ------------------------------------------------------------------------
+class Theme:
+    BG   = '#f4f6fb'
+    PNL  = '#ffffff'
+    PNL2 = '#eef1f8'
+    ACC  = '#2563eb'
+    FG   = '#1e293b'
+    DIM  = '#64748b'
+    BRD  = '#cbd5e1'
+    SEP  = '#e2e8f0'
+    CV_BG= '#f8fafc'
+    
+    C_HL   = '#dc2626'
+    C_MARK = '#7c3aed'
+    
+    is_dark = False
+
+    LIGHT_TO_DARK = {
+        '#f4f6fb': '#0f172a', '#ffffff': '#1e293b', '#eef1f8': '#334155',
+        '#1e293b': '#f8fafc', '#64748b': '#94a3b8', '#cbd5e1': '#475569', 
+        '#e2e8f0': '#334155', '#f8fafc': '#020617'
+    }
+    DARK_TO_LIGHT = {v: k for k, v in LIGHT_TO_DARK.items()}
+
+    @classmethod
+    def toggle(cls):
+        cls.is_dark = not cls.is_dark
+        if cls.is_dark:
+            cls.BG, cls.PNL, cls.PNL2 = '#0f172a', '#1e293b', '#334155'
+            cls.FG, cls.DIM = '#f8fafc', '#94a3b8'
+            cls.BRD, cls.SEP = '#475569', '#334155'
+            cls.CV_BG = '#020617'
+        else:
+            cls.BG, cls.PNL, cls.PNL2 = '#f4f6fb', '#ffffff', '#eef1f8'
+            cls.FG, cls.DIM = '#1e293b', '#64748b'
+            cls.BRD, cls.SEP = '#cbd5e1', '#e2e8f0'
+            cls.CV_BG = '#f8fafc'
+
+TRACE_COLORS = ['#2563eb', '#10b981', '#f59e0b', '#dc2626', '#7c3aed', '#db2777', '#06b6d4', '#059669']
+
+# ------------------------------------------------------------------------
+# 2. Interactive Chart Properties Editor (Legends, Titles, Scaling)
+# ------------------------------------------------------------------------
+class ChartPropertiesDialog(tk.Toplevel):
+    def __init__(self, parent, chart_obj, chart_key, callback):
+        super().__init__(parent)
+        self.title(f"Chart Properties - {chart_obj.title}")
+        self.geometry("550x650")
+        self.configure(bg=Theme.BG)
+        self.transient(parent)
+        self.grab_set()
+
+        self.chart = chart_obj
+        self.chart_key = chart_key
+        self.callback = callback
+        self.trace_entries = {}
+
+        self._build_ui()
+
+    def _build_ui(self):
+        container = tk.Frame(self, bg=Theme.PNL, highlightthickness=1, highlightbackground=Theme.BRD)
+        container.pack(fill='both', expand=True, padx=12, pady=12)
+
+        lbl_frm = tk.LabelFrame(container, text=" Axis Labels & Titles ", bg=Theme.PNL, fg=Theme.ACC, font=('Segoe UI', 11, 'bold'))
+        lbl_frm.pack(fill='x', padx=10, pady=10)
+
+        tk.Label(lbl_frm, text="Chart Title:", bg=Theme.PNL, fg=Theme.FG, font=('Segoe UI', 10)).grid(row=0, column=0, padx=5, pady=5, sticky='e')
+        self.ent_title = tk.Entry(lbl_frm, bg=Theme.PNL2, fg=Theme.FG, width=30, font=('Segoe UI', 10))
+        self.ent_title.insert(0, self.chart.title)
+        self.ent_title.grid(row=0, column=1, padx=5, pady=5)
+
+        tk.Label(lbl_frm, text="X-Axis Label:", bg=Theme.PNL, fg=Theme.FG, font=('Segoe UI', 10)).grid(row=1, column=0, padx=5, pady=5, sticky='e')
+        self.ent_xlabel = tk.Entry(lbl_frm, bg=Theme.PNL2, fg=Theme.FG, width=30, font=('Segoe UI', 10))
+        self.ent_xlabel.insert(0, self.chart.x_label)
+        self.ent_xlabel.grid(row=1, column=1, padx=5, pady=5)
+
+        tk.Label(lbl_frm, text="Y-Axis Label:", bg=Theme.PNL, fg=Theme.FG, font=('Segoe UI', 10)).grid(row=2, column=0, padx=5, pady=5, sticky='e')
+        self.ent_ylabel = tk.Entry(lbl_frm, bg=Theme.PNL2, fg=Theme.FG, width=30, font=('Segoe UI', 10))
+        self.ent_ylabel.insert(0, self.chart.y_label)
+        self.ent_ylabel.grid(row=2, column=1, padx=5, pady=5)
+
+        scale_frm = tk.LabelFrame(container, text=" Fixed Y-Axis Scale Bounds (Leave blank for Auto-Scale) ", bg=Theme.PNL, fg=Theme.ACC, font=('Segoe UI', 11, 'bold'))
+        scale_frm.pack(fill='x', padx=10, pady=5)
+
+        tk.Label(scale_frm, text="Y-Axis Min:", bg=Theme.PNL, fg=Theme.FG, font=('Segoe UI', 10)).grid(row=0, column=0, padx=5, pady=5, sticky='e')
+        self.ent_ymin = tk.Entry(scale_frm, bg=Theme.PNL2, fg=Theme.FG, width=15, font=('Segoe UI', 10))
+        if self.chart.y_min_override is not None: self.ent_ymin.insert(0, str(self.chart.y_min_override))
+        self.ent_ymin.grid(row=0, column=1, padx=5, pady=5)
+
+        tk.Label(scale_frm, text="Y-Axis Max:", bg=Theme.PNL, fg=Theme.FG, font=('Segoe UI', 10)).grid(row=0, column=2, padx=5, pady=5, sticky='e')
+        self.ent_ymax = tk.Entry(scale_frm, bg=Theme.PNL2, fg=Theme.FG, width=15, font=('Segoe UI', 10))
+        if self.chart.y_max_override is not None: self.ent_ymax.insert(0, str(self.chart.y_max_override))
+        self.ent_ymax.grid(row=0, column=3, padx=5, pady=5)
+
+        trace_frm = tk.LabelFrame(container, text=" Edit Trace Names (Legend) ", bg=Theme.PNL, fg=Theme.ACC, font=('Segoe UI', 11, 'bold'))
+        trace_frm.pack(fill='both', expand=True, padx=10, pady=10)
+
+        cv = tk.Canvas(trace_frm, bg=Theme.PNL, highlightthickness=0)
+        vsb = ttk.Scrollbar(trace_frm, orient="vertical", command=cv.yview)
+        tr_container = tk.Frame(cv, bg=Theme.PNL)
+        
+        tr_container.bind("<Configure>", lambda e: cv.configure(scrollregion=cv.bbox("all")))
+        cv.create_window((0, 0), window=tr_container, anchor="nw")
+        cv.configure(yscrollcommand=vsb.set)
+        cv.pack(side="left", fill="both", expand=True)
+        vsb.pack(side="right", fill="y")
+
+        row_idx = 0
+        for group in [self.chart.datasets, self.chart.analysis_layers]:
+            for t_id, trace in group.items():
+                col_box = tk.Label(tr_container, bg=trace["color"], width=3)
+                col_box.grid(row=row_idx, column=0, padx=5, pady=4)
+                
+                tk.Label(tr_container, text=f"ID: {t_id[:15]}...", bg=Theme.PNL, fg=Theme.DIM, font=('Segoe UI', 9)).grid(row=row_idx, column=1, padx=5, sticky='w')
+                
+                ent_name = tk.Entry(tr_container, bg=Theme.PNL2, fg=Theme.FG, width=25, font=('Segoe UI', 10))
+                ent_name.insert(0, trace.get("trace_name", t_id))
+                ent_name.grid(row=row_idx, column=2, padx=5, pady=4)
+                
+                self.trace_entries[t_id] = ent_name
+                row_idx += 1
+
+        btn_frm = tk.Frame(container, bg=Theme.PNL)
+        btn_frm.pack(fill='x', padx=10, pady=10)
+
+        tk.Button(btn_frm, text="Apply Chart Properties", bg=Theme.ACC, fg='#ffffff', font=('Segoe UI', 11, 'bold'), relief='flat', padx=15, pady=5, command=self._apply).pack(side='right', padx=5)
+        tk.Button(btn_frm, text="Cancel", bg=Theme.PNL2, fg=Theme.FG, font=('Segoe UI', 11), relief='flat', padx=15, pady=5, command=self.destroy).pack(side='right', padx=5)
+
+    def _apply(self):
+        try:
+            y_min = float(self.ent_ymin.get()) if self.ent_ymin.get().strip() else None
+            y_max = float(self.ent_ymax.get()) if self.ent_ymax.get().strip() else None
+        except ValueError:
+            messagebox.showerror("Scale Error", "Y-Axis Min/Max must be valid numbers.")
+            return
+
+        props = {
+            "title": self.ent_title.get().strip(),
+            "x_label": self.ent_xlabel.get().strip(),
+            "y_label": self.ent_ylabel.get().strip(),
+            "y_min": y_min,
+            "y_max": y_max
+        }
+        trace_names = {t_id: ent.get().strip() for t_id, ent in self.trace_entries.items()}
+
+        self.callback(self.chart_key, props, trace_names)
+        self.destroy()
+
+# ------------------------------------------------------------------------
+# 3. Spreadsheet CSV Import Dialog
+# ------------------------------------------------------------------------
+class DataImportDialog(tk.Toplevel):
+    def __init__(self, parent, df, filename, callback, existing_id=None, existing_config=None):
+        super().__init__(parent)
+        title_prefix = "Re-configure Plot" if existing_id else "CSV Data Import Configuration"
+        self.title(f"{title_prefix} - {filename}")
+        self.geometry("950x700")
+        self.configure(bg=Theme.BG)
+        self.transient(parent)
+        self.grab_set()
+
+        self.df = df
+        self.filename = filename
+        self.callback = callback
+        self.existing_id = existing_id
+        self.existing_config = existing_config
+
+        self._build_ui()
+        if self.existing_config:
+            self._load_existing_config()
+        else:
+            self._auto_guess_columns()
+
+    def _build_ui(self):
+        ctrl_frame = tk.Frame(self, bg=Theme.PNL, highlightthickness=1, highlightbackground=Theme.BRD)
+        ctrl_frame.pack(fill='x', padx=10, pady=10)
+
+        map_frm = tk.LabelFrame(ctrl_frame, text=" Column Mapping ", bg=Theme.PNL, fg=Theme.ACC, font=('Segoe UI', 11, 'bold'))
+        map_frm.pack(side='left', fill='y', padx=10, pady=10)
+
+        tk.Label(map_frm, text="X-Axis (Time/Index):", bg=Theme.PNL, fg=Theme.FG, font=('Segoe UI', 10)).grid(row=0, column=0, padx=5, pady=5, sticky='e')
+        self.cb_x = ttk.Combobox(map_frm, values=list(self.df.columns), state='readonly', width=22, font=('Segoe UI', 10))
+        self.cb_x.grid(row=0, column=1, padx=5, pady=5)
+
+        tk.Label(map_frm, text="Y-Axis (Value):", bg=Theme.PNL, fg=Theme.FG, font=('Segoe UI', 10)).grid(row=1, column=0, padx=5, pady=5, sticky='e')
+        self.cb_y = ttk.Combobox(map_frm, values=list(self.df.columns), state='readonly', width=22, font=('Segoe UI', 10))
+        self.cb_y.grid(row=1, column=1, padx=5, pady=5)
+
+        self.btn_edit_axes = tk.Button(map_frm, text="✎ Edit Axes", bg=Theme.PNL2, fg=Theme.FG, font=('Segoe UI', 9), relief='flat', command=self._unlock_axes)
+        
+        slice_frm = tk.LabelFrame(ctrl_frame, text=" Data Processing ", bg=Theme.PNL, fg=Theme.ACC, font=('Segoe UI', 11, 'bold'))
+        slice_frm.pack(side='left', fill='y', padx=10, pady=10)
+
+        tk.Label(slice_frm, text="Start Row:", bg=Theme.PNL, fg=Theme.FG, font=('Segoe UI', 10)).grid(row=0, column=0, padx=5, pady=5, sticky='e')
+        self.ent_start = tk.Entry(slice_frm, bg=Theme.PNL2, fg=Theme.FG, width=12, font=('Segoe UI', 10))
+        self.ent_start.insert(0, "0")
+        self.ent_start.grid(row=0, column=1, padx=5, pady=5)
+
+        tk.Label(slice_frm, text="End Row:", bg=Theme.PNL, fg=Theme.FG, font=('Segoe UI', 10)).grid(row=1, column=0, padx=5, pady=5, sticky='e')
+        self.ent_end = tk.Entry(slice_frm, bg=Theme.PNL2, fg=Theme.FG, width=12, font=('Segoe UI', 10))
+        self.ent_end.insert(0, str(len(self.df)))
+        self.ent_end.grid(row=1, column=1, padx=5, pady=5)
+
+        tk.Label(slice_frm, text="Y-Scale Multiplier:", bg=Theme.PNL, fg=Theme.FG, font=('Segoe UI', 10)).grid(row=0, column=2, padx=5, pady=5, sticky='e')
+        self.ent_scale = tk.Entry(slice_frm, bg=Theme.PNL2, fg=Theme.FG, width=10, font=('Segoe UI', 10))
+        self.ent_scale.insert(0, "1.0")
+        self.ent_scale.grid(row=0, column=3, padx=5, pady=5)
+
+        style_frm = tk.LabelFrame(ctrl_frame, text=" Trace Aesthetics ", bg=Theme.PNL, fg=Theme.ACC, font=('Segoe UI', 11, 'bold'))
+        style_frm.pack(side='left', fill='y', padx=10, pady=10)
+
+        tk.Label(style_frm, text="Trace Name:", bg=Theme.PNL, fg=Theme.FG, font=('Segoe UI', 10)).grid(row=0, column=0, padx=5, pady=5, sticky='e')
+        self.ent_name = tk.Entry(style_frm, bg=Theme.PNL2, fg=Theme.FG, width=18, font=('Segoe UI', 10))
+        self.ent_name.insert(0, self.filename)
+        self.ent_name.grid(row=0, column=1, padx=5, pady=5)
+
+        tk.Label(style_frm, text="Line Style:", bg=Theme.PNL, fg=Theme.FG, font=('Segoe UI', 10)).grid(row=1, column=0, padx=5, pady=5, sticky='e')
+        self.cb_style = ttk.Combobox(style_frm, values=["Solid", "Dashed", "Dotted"], state='readonly', width=16, font=('Segoe UI', 10))
+        self.cb_style.current(0)
+        self.cb_style.grid(row=1, column=1, padx=5, pady=5)
+
+        prev_frm = tk.Frame(self, bg=Theme.BG)
+        prev_frm.pack(fill='both', expand=True, padx=10, pady=(0, 10))
+
+        tk.Label(prev_frm, text=f"Data Preview (First 200 of {len(self.df):,} rows)", bg=Theme.BG, fg=Theme.DIM, font=('Segoe UI', 10, 'bold')).pack(anchor='w')
+
+        tv_container = tk.Frame(prev_frm)
+        tv_container.pack(fill='both', expand=True)
+        
+        vsb = ttk.Scrollbar(tv_container, orient="vertical")
+        hsb = ttk.Scrollbar(tv_container, orient="horizontal")
+        
+        self.tv = ttk.Treeview(tv_container, columns=list(self.df.columns), show='headings', yscrollcommand=vsb.set, xscrollcommand=hsb.set)
+        vsb.config(command=self.tv.yview); hsb.config(command=self.tv.xview)
+
+        self.tv.grid(row=0, column=0, sticky='nsew')
+        vsb.grid(row=0, column=1, sticky='ns')
+        hsb.grid(row=1, column=0, sticky='ew')
+        tv_container.grid_columnconfigure(0, weight=1); tv_container.grid_rowconfigure(0, weight=1)
+
+        for col in self.df.columns:
+            self.tv.heading(col, text=col)
+            self.tv.column(col, width=140)
+
+        for _, row in self.df.head(200).iterrows():
+            self.tv.insert("", "end", values=list(row))
+
+        btn_frm = tk.Frame(self, bg=Theme.BG)
+        btn_frm.pack(fill='x', padx=10, pady=10)
+
+        apply_text = "Apply Configuration" if self.existing_id else "Load Selected Data"
+        tk.Button(btn_frm, text=apply_text, bg=Theme.ACC, fg='#ffffff', font=('Segoe UI', 11, 'bold'), relief='flat', padx=15, pady=5, command=self._apply).pack(side='right', padx=5)
+        tk.Button(btn_frm, text="Cancel", bg=Theme.PNL2, fg=Theme.FG, font=('Segoe UI', 11), relief='flat', padx=15, pady=5, command=self.destroy).pack(side='right', padx=5)
+
+    def _auto_guess_columns(self):
+        cx = next((c for c in self.df.columns if any(k in str(c).lower() for k in ['time', 'sec', 'x'])), None)
+        cy = next((c for c in self.df.columns if any(k in str(c).lower() for k in ['reading', 'val', 'mv', 'emf', 'amp', 'y'])), None)
+        if cx: self.cb_x.set(cx)
+        elif len(self.df.columns) > 0: self.cb_x.current(0)
+        if cy: self.cb_y.set(cy)
+        elif len(self.df.columns) > 1: self.cb_y.current(1)
+
+    def _load_existing_config(self):
+        self.cb_x.set(self.existing_config["x_col"])
+        self.cb_y.set(self.existing_config["y_col"])
+        self.cb_x.config(state='disabled')
+        self.cb_y.config(state='disabled')
+        self.btn_edit_axes.grid(row=0, column=2, rowspan=2, padx=10, sticky='ns')
+
+        self.ent_start.delete(0, tk.END); self.ent_start.insert(0, str(self.existing_config["start_row"]))
+        self.ent_end.delete(0, tk.END); self.ent_end.insert(0, str(self.existing_config["end_row"]))
+        self.ent_scale.delete(0, tk.END); self.ent_scale.insert(0, str(self.existing_config["scale"]))
+        self.ent_name.delete(0, tk.END); self.ent_name.insert(0, self.existing_config["trace_name"])
+        self.cb_style.set(self.existing_config["line_style"])
+
+    def _unlock_axes(self):
+        self.cb_x.config(state='readonly')
+        self.cb_y.config(state='readonly')
+        self.btn_edit_axes.grid_forget()
+
+    def _apply(self):
+        x_col = self.cb_x.get()
+        y_col = self.cb_y.get()
+        style = self.cb_style.get()
+        t_name = self.ent_name.get().strip() or self.filename
+
+        if not x_col or not y_col:
+            messagebox.showerror("Selection Error", "Please map both X and Y columns.")
+            return
+
+        try:
+            start_row = int(self.ent_start.get())
+            end_row = int(self.ent_end.get())
+            scale = float(self.ent_scale.get())
+        except ValueError:
+            messagebox.showerror("Selection Error", "Row bounds must be integers and Scale must be a number.")
+            return
+
+        start_row = max(0, start_row)
+        end_row = min(len(self.df), end_row)
+
+        self.callback(self.filename, self.df, x_col, y_col, start_row, end_row, t_name, scale, style, self.existing_id)
+        self.destroy()
+
+# ------------------------------------------------------------------------
+# 4. Canvas Hover Tooltip System (Optimized with Caching)
+# ------------------------------------------------------------------------
+class ListboxTooltip:
+    def __init__(self, listbox, get_data_func):
+        self.listbox = listbox
+        self.get_data = get_data_func
+        self.tw = None
+        self.current_idx = None  # Cache to prevent window recreation lag
+        self.listbox.bind("<Motion>", self.on_motion)
+        self.listbox.bind("<Leave>", self.hide_tooltip)
+
+    def on_motion(self, event):
+        idx = self.listbox.nearest(event.y)
+        bbox = self.listbox.bbox(idx)
+        if bbox and bbox[1] <= event.y <= bbox[1] + bbox[3]:
+            if self.current_idx == idx:  # Already showing tooltip for this item
+                return
+            self.current_idx = idx
+            val = self.listbox.get(idx)
+            data = self.get_data(val)
+            if data:
+                text = f"Trace: {data['trace_name']}\nX: {data['x_col']} | Y: {data['y_col']}\nScale: {data['scale']}x"
+                self.show_tooltip(event, text)
+            else: 
+                self.hide_tooltip()
+        else: 
+            self.hide_tooltip()
+
+    def show_tooltip(self, event, text):
+        if self.tw: self.hide_tooltip()
+        x = self.listbox.winfo_rootx() + event.x + 20
+        y = self.listbox.winfo_rooty() + event.y + 10
+        self.tw = tk.Toplevel(self.listbox)
+        self.tw.wm_overrideredirect(True)
+        self.tw.wm_geometry(f"+{x}+{y}")
+        tk.Label(self.tw, text=text, bg=Theme.PNL2, fg=Theme.FG, relief='solid', borderwidth=1, font=("Segoe UI", 10)).pack(padx=4, pady=2)
+
+    def hide_tooltip(self, event=None):
+        if self.tw:
+            self.tw.destroy()
+            self.tw = None
+        self.current_idx = None
+
+# ------------------------------------------------------------------------
+# 5. Math Engine & High Performance Canvas
+# ------------------------------------------------------------------------
+class MathEngine:
+    @staticmethod
+    def compute_derivative(x, y):
+        if len(x) < 2: return x, y
+        dx = np.diff(x)
+        dy = np.diff(y)
+        dx[dx == 0] = 1e-12 
+        return x[:-1], dy / dx
+
+    @staticmethod
+    def compute_integral(x, y):
+        if len(x) < 2: return x, np.zeros_like(y)
+        dx = np.diff(x)
+        cumulative_sum = np.cumsum(0.5 * (y[:-1] + y[1:]) * dx)
+        integral = np.zeros(len(x))
+        integral[1:] = cumulative_sum
+        return x, integral
+
+class AdvancedAnalysisCanvas:
+    MAX_DRAW_PTS = 4000  
+
+    def __init__(self, parent, chart_key, on_view_changed_callback=None, on_edit_request_callback=None, title=""):
+        self._frame = tk.Frame(parent, bg=Theme.BG)
+        self.canvas = tk.Canvas(self._frame, bg=Theme.CV_BG, highlightthickness=1, highlightbackground=Theme.BRD)
+        self.canvas.pack(fill='both', expand=True)
+        
+        self.chart_key = chart_key
+        self.title = title
+        self.x_label = ""
+        self.y_label = ""
+
+        self.w = self.h = 0
+        self.cw = self.ch = 1
+        self.pad_l = 85
+        self.pad_r = 25
+        self.pad_t = 45 if title else 30
+        self.pad_b = 65  
+        self.num_grid = 5
+
+        self.datasets = {}         
+        self.analysis_layers = {}  
+        self.labels = []           
+
+        self.view_xmin = self.view_xmax = 0.0
+        self.view_ymin = self.view_ymax = 0.0
+        
+        self.y_min_override = None
+        self.y_max_override = None
+
+        self.on_view_changed = on_view_changed_callback
+        self.on_edit_request = on_edit_request_callback
+
+        self._last_mx = self._last_my = None
+        self.marker_mode = self.label_drop_mode = False
+        self.next_label_text = ""
+        self.m1 = self.m2 = None
+
+        self._apply_event_bindings()
+        self._create_interactive_overlays()
+
+    def _apply_event_bindings(self):
+        self.canvas.bind('<Configure>', self._on_resize)
+        self.canvas.bind('<Motion>', self._on_hover)
+        self.canvas.bind('<Leave>', self._on_mouse_leave)
+        self.canvas.bind('<ButtonPress-1>', self._on_mouse_down)
+        self.canvas.bind('<B1-Motion>', self._on_mouse_drag)
+        self.canvas.bind('<MouseWheel>', self._on_mouse_wheel)
+        self.canvas.bind('<Button-4>', self._on_mouse_wheel)
+        self.canvas.bind('<Button-5>', self._on_mouse_wheel)
+        
+        self.canvas.bind('<Button-3>', self._show_context_menu)
+        self.canvas.bind('<Button-2>', self._show_context_menu)
+
+    def _show_context_menu(self, e):
+        self.canvas.focus_set()
+        menu = tk.Menu(self.canvas, tearoff=0, bg=Theme.PNL, fg=Theme.FG, font=('Segoe UI', 11))
+        
+        if self.on_edit_request:
+            menu.add_command(label="⚙ Properties (Title, Axes, Scale)", command=lambda: self.on_edit_request(self))
+            menu.add_separator()
+            
+        menu.add_command(label="↺ Auto-Fit Bounds", command=self.reset_global_viewport)
+        menu.add_command(label="🗑 Clear Markers & Pins", command=self._clear_annotations)
+        menu.tk_popup(e.x_root, e.y_root)
+
+    def _clear_annotations(self):
+        self.labels.clear()
+        self.m1 = self.m2 = None
+        self.redraw()
+
+    def _create_interactive_overlays(self):
+        self.vl = self.canvas.create_line(0,0,0,0, fill=Theme.C_HL, dash=(3,3), state='hidden', tags='hover')
+        self.hl = self.canvas.create_line(0,0,0,0, fill=Theme.C_HL, dash=(3,3), state='hidden', tags='hover')
+        self.tt_bg = self.canvas.create_rectangle(0,0,0,0, fill='#1e293b', outline=Theme.BRD, state='hidden', tags='hover')
+        self.tt_txt = self.canvas.create_text(0,0, text='', anchor='nw', fill='#ffffff', font=('Segoe UI', 10, 'bold'), state='hidden', tags='hover')
+
+    def register_dataset(self, d_id, x, y, color, style="Solid", trace_name=""):
+        self.datasets[d_id] = {"x": np.asarray(x, dtype=float), "y": np.asarray(y, dtype=float), "color": color, "style": style, "trace_name": trace_name or d_id}
+
+    def add_analysis_trace(self, t_id, x, y, color, style="Dashed", trace_name=""):
+        self.analysis_layers[t_id] = {"x": np.asarray(x, dtype=float), "y": np.asarray(y, dtype=float), "color": color, "style": style, "trace_name": trace_name}
+
+    def reset_global_viewport(self):
+        if not self.datasets and not self.analysis_layers:
+            self.redraw()
+            return
+        
+        all_xmin, all_xmax, all_ymin, all_ymax = np.inf, -np.inf, np.inf, -np.inf
+
+        for layer in [self.datasets, self.analysis_layers]:
+            for d in layer.values():
+                if len(d["x"]) == 0: continue
+                all_xmin, all_xmax = min(all_xmin, d["x"].min()), max(all_xmax, d["x"].max())
+                all_ymin, all_ymax = min(all_ymin, d["y"].min()), max(all_ymax, d["y"].max())
+
+        if all_xmin == np.inf: return
+
+        span_x = all_xmax - all_xmin if all_xmax != all_xmin else 1.0
+        span_y = all_ymax - all_ymin if all_ymax != all_ymin else 1.0
+
+        self.view_xmin, self.view_xmax = all_xmin - span_x * 0.05, all_xmax + span_x * 0.05
+        
+        if self.y_min_override is not None:
+            self.view_ymin = self.y_min_override
+        else:
+            self.view_ymin = all_ymin - span_y * 0.05
+            
+        if self.y_max_override is not None:
+            self.view_ymax = self.y_max_override
+        else:
+            self.view_ymax = all_ymax + span_y * 0.05
+            
+        self.redraw()
+
+    def _cx(self, x): return self.pad_l + (x - self.view_xmin) / (self.view_xmax - self.view_xmin) * self.cw
+    def _cy(self, y): return self.pad_t + (1.0 - (y - self.view_ymin) / (self.view_ymax - self.view_ymin)) * self.ch
+    def _dx(self, cx): return self.view_xmin + (cx - self.pad_l) / self.cw * (self.view_xmax - self.view_xmin)
+    def _dy(self, cy): return self.view_ymin + (1.0 - (cy - self.pad_t) / self.ch) * (self.view_ymax - self.view_ymin)
+
+    def execute_pan(self, direction, factor=0.08):
+        span_x, span_y = self.view_xmax - self.view_xmin, self.view_ymax - self.view_ymin
+        if direction == 'left':
+            self.view_xmin -= span_x * factor; self.view_xmax -= span_x * factor
+        elif direction == 'right':
+            self.view_xmin += span_x * factor; self.view_xmax += span_x * factor
+        elif direction == 'up':
+            self.view_ymin += span_y * factor; self.view_ymax += span_y * factor
+        elif direction == 'down':
+            self.view_ymin -= span_y * factor; self.view_ymax -= span_y * factor
+        self.redraw()
+
+    def _on_resize(self, e):
+        self.w, self.h = e.width, e.height
+        self.cw, self.ch = max(1, self.w - self.pad_l - self.pad_r), max(1, self.h - self.pad_t - self.pad_b)
+        self.redraw()
+
+    def _on_mouse_down(self, e):
+        self.canvas.focus_set()
+        if not (self.pad_l <= e.x <= self.w - self.pad_r and self.pad_t <= e.y <= self.h - self.pad_b): return
+        
+        if self.label_drop_mode:
+            self.labels.append({"x": self._dx(e.x), "y": self._dy(e.y), "text": self.next_label_text})
+            self.label_drop_mode = False
+            self.canvas.config(cursor="")
+            self.redraw()
+            return
+
+        if self.marker_mode:
+            mx, my = self._dx(e.x), self._dy(e.y)
+            if self.m1 is not None and self.m2 is not None: self.m1 = self.m2 = None
+            if self.m1 is None: self.m1 = (mx, my)
+            elif self.m2 is None: self.m2 = (mx, my)
+            self.redraw()
+            return
+
+        self._last_mx, self._last_my = e.x, e.y
+
+    def _on_mouse_drag(self, e):
+        if self.marker_mode or self._last_mx is None: return
+        dx_px, dy_px = e.x - self._last_mx, e.y - self._last_my
+        span_x, span_y = self.view_xmax - self.view_xmin, self.view_ymax - self.view_ymin
+
+        self.view_xmin -= (dx_px / self.cw) * span_x; self.view_xmax -= (dx_px / self.cw) * span_x
+        self.view_ymin += (dy_px / self.ch) * span_y; self.view_ymax += (dy_px / self.ch) * span_y
+        self._last_mx, self._last_my = e.x, e.y
+        self.redraw()
+
+    def _on_mouse_wheel(self, e):
+        if not self.datasets: return
+        scale = 0.85 if (hasattr(e, 'delta') and e.delta > 0) or e.num == 4 else 1.15
+        ref_x, ref_y = self._dx(e.x), self._dy(e.y)
+        new_span_x, new_span_y = (self.view_xmax - self.view_xmin) * scale, (self.view_ymax - self.view_ymin) * scale
+        frac_x = max(0.0, min(1.0, (e.x - self.pad_l) / self.cw))
+        frac_y = max(0.0, min(1.0, 1.0 - ((e.y - self.pad_t) / self.ch)))
+
+        self.view_xmin, self.view_xmax = ref_x - new_span_x * frac_x, ref_x + new_span_x * (1 - frac_x)
+        self.view_ymin, self.view_ymax = ref_y - new_span_y * frac_y, ref_y + new_span_y * (1 - frac_y)
+        self.redraw()
+
+    def _on_hover(self, e):
+        if not self.datasets or not (self.pad_l <= e.x <= self.w - self.pad_r and self.pad_t <= e.y <= self.h - self.pad_b):
+            self._on_mouse_leave(None); return
+
+        hx = self._dx(e.x)
+        closest, min_delta_x = None, np.inf
+
+        for d_id, trace in {**self.datasets, **self.analysis_layers}.items():
+            if len(trace["x"]) == 0: continue
+            
+            s_idx = np.searchsorted(trace["x"], self.view_xmin)
+            e_idx = np.searchsorted(trace["x"], self.view_xmax)
+            if s_idx > 0: s_idx -= 1
+            if e_idx < len(trace["x"]): e_idx += 1
+            
+            sub_x = trace["x"][s_idx:e_idx]
+            if len(sub_x) == 0: continue
+            
+            idx = np.searchsorted(sub_x, hx)
+            idx = max(0, min(idx, len(sub_x) - 1))
+            
+            if abs(sub_x[idx] - hx) < min_delta_x:
+                min_delta_x = abs(sub_x[idx] - hx)
+                closest = (trace["trace_name"], sub_x[idx], trace["y"][s_idx:e_idx][idx], trace["color"])
+
+        if closest:
+            t_name, tx, ty, col = closest
+            cx, cy = self._cx(tx), self._cy(ty)
+
+            self.canvas.coords(self.vl, cx, self.pad_t, cx, self.h - self.pad_b)
+            self.canvas.coords(self.hl, self.pad_l, cy, self.w - self.pad_r, cy)
+
+            self.canvas.itemconfig(self.tt_txt, text=f"Trace: {t_name}\nX: {tx:.4f}\nY: {ty:.4f}")
+            bbox = self.canvas.bbox(self.tt_txt)
+            if bbox:
+                self.canvas.coords(self.tt_bg, cx + 10, cy - 10, cx + 15 + (bbox[2]-bbox[0]), cy + 10 + (bbox[3]-bbox[1]))
+                self.canvas.coords(self.tt_txt, cx + 12, cy - 6)
+
+            self.canvas.itemconfig(self.vl, state='normal')
+            self.canvas.itemconfig(self.hl, state='normal')
+            self.canvas.itemconfig(self.tt_bg, state='normal')
+            self.canvas.itemconfig(self.tt_txt, state='normal')
+
+    def _on_mouse_leave(self, e):
+        self.canvas.itemconfig(self.vl, state='hidden')
+        self.canvas.itemconfig(self.hl, state='hidden')
+        self.canvas.itemconfig(self.tt_bg, state='hidden')
+        self.canvas.itemconfig(self.tt_txt, state='hidden')
+
+    def redraw(self):
+        self.canvas.delete('grid'); self.canvas.delete('trace')
+        self.canvas.tag_raise('hover')
+        self.canvas.config(bg=Theme.CV_BG, highlightbackground=Theme.BRD)
+
+        if self.title:
+            self.canvas.create_text(self.pad_l - 10, 20, text=self.title, fill=Theme.ACC, font=('Segoe UI', 12, 'bold'), anchor='w', tags='grid')
+        if self.x_label:
+            self.canvas.create_text(self.pad_l + self.cw/2, self.h - 15, text=self.x_label, fill=Theme.FG, font=('Segoe UI', 11, 'bold'), anchor='s', tags='grid')
+        if self.y_label:
+            self.canvas.create_text(20, self.pad_t + self.ch/2, text=self.y_label, fill=Theme.FG, font=('Segoe UI', 11, 'bold'), angle=90, anchor='s', tags='grid')
+
+        for k in range(self.num_grid + 1):
+            frac = k / self.num_grid
+            gx, gy = self.pad_l + self.cw * frac, self.pad_t + self.ch * frac
+            
+            self.canvas.create_line(self.pad_l, gy, self.w - self.pad_r, gy, fill=Theme.SEP, tags='grid')
+            self.canvas.create_text(self.pad_l - 8, gy, text=f"{self.view_ymax - (self.view_ymax - self.view_ymin) * frac:.3g}", anchor='e', font=('Segoe UI', 10), fill=Theme.DIM, tags='grid')
+
+            self.canvas.create_line(gx, self.pad_t, gx, self.h - self.pad_b, fill=Theme.SEP, tags='grid')
+            self.canvas.create_text(gx, self.h - self.pad_b + 8, text=f"{self.view_xmin + (self.view_xmax - self.view_xmin) * frac:.3g}", anchor='n', font=('Segoe UI', 10), fill=Theme.DIM, tags='grid')
+
+        dash_map = {"Solid": None, "Dashed": (8, 4), "Dotted": (2, 4)}
+
+        for group in [self.datasets, self.analysis_layers]:
+            for d_id, trace in group.items():
+                tx, ty = trace["x"], trace["y"]
+                if len(tx) < 2: continue
+
+                s_idx = np.searchsorted(tx, self.view_xmin)
+                e_idx = np.searchsorted(tx, self.view_xmax)
+                if s_idx > 0: s_idx -= 1 
+                if e_idx < len(tx): e_idx += 1
+
+                vx, vy = tx[s_idx:e_idx], ty[s_idx:e_idx]
+                n_samples = len(vx)
+                if n_samples < 2: continue
+
+                if n_samples > self.MAX_DRAW_PTS:
+                    stride = max(1, n_samples // self.MAX_DRAW_PTS)
+                    vx, vy = vx[::stride], vy[::stride]
+
+                px = self.pad_l + (vx - self.view_xmin) / (self.view_xmax - self.view_xmin) * self.cw
+                py = self.pad_t + (1.0 - (vy - self.view_ymin) / (self.view_ymax - self.view_ymin)) * self.ch
+                
+                coords = np.empty(len(px) * 2, dtype=float)
+                coords[0::2], coords[1::2] = px, py
+                
+                style = dash_map.get(trace.get("style", "Solid"), None)
+                self.canvas.create_line(*coords.tolist(), fill=trace["color"], width=2.0, dash=style, tags='trace', joinstyle=tk.ROUND)
+
+        items = list(self.datasets.items()) + list(self.analysis_layers.items())
+        if items:
+            lx, ly = self.w - self.pad_r - 200, self.pad_t + 10
+            box_h = len(items) * 22 + 10
+            self.canvas.create_rectangle(lx - 10, ly - 5, lx + 190, ly + box_h - 5, fill=Theme.PNL, outline=Theme.BRD, tags='trace')
+            for d_id, trace in items:
+                style = dash_map.get(trace.get("style", "Solid"), None)
+                name = trace.get("trace_name")[:22] + "..." if len(trace.get("trace_name")) > 22 else trace.get("trace_name")
+                self.canvas.create_line(lx, ly + 10, lx + 30, ly + 10, fill=trace["color"], width=2, dash=style, tags='trace')
+                self.canvas.create_text(lx + 40, ly + 10, text=name, fill=Theme.FG, font=('Segoe UI', 10, 'bold'), anchor='w', tags='trace')
+                ly += 22
+
+        for lbl in self.labels:
+            lx, ly = self._cx(lbl["x"]), self._cy(lbl["y"])
+            if self.pad_l <= lx <= self.w - self.pad_r and self.pad_t <= ly <= self.h - self.pad_b:
+                self.canvas.create_oval(lx-5, ly-5, lx+5, ly+5, fill='#10b981', outline='#ffffff', tags='trace')
+                self.canvas.create_text(lx+10, ly-10, text=lbl["text"], anchor='sw', font=('Segoe UI', 10, 'bold'), fill=Theme.FG, tags='trace')
+
+        self._render_markers()
+        if self.on_view_changed: self.on_view_changed()
+
+    def _render_markers(self):
+        pts = [p for p in [self.m1, self.m2] if p]
+        for p in pts:
+            cx, cy = self._cx(p[0]), self._cy(p[1])
+            self.canvas.create_oval(cx-6, cy-6, cx+6, cy+6, fill=Theme.C_MARK, outline='#ffffff', width=2, tags='trace')
+
+        if len(pts) == 2:
+            cx1, cy1 = self._cx(pts[0][0]), self._cy(pts[0][1])
+            cx2, cy2 = self._cx(pts[1][0]), self._cy(pts[1][1])
+            self.canvas.create_line(cx1, cy1, cx2, cy2, fill=Theme.C_MARK, width=2, dash=(4, 4), tags='trace')
+
+            dx, dy = pts[1][0] - pts[0][0], pts[1][1] - pts[0][1]
+            slope = dy / dx if dx != 0 else float('inf')
+            report = f"ΔX: {dx:.4g} | ΔY: {dy:.4g} | ∠: {math.degrees(math.atan2(dy, dx)):.1f}°"
+            mid_x, mid_y = (cx1 + cx2) / 2, min(cy1, cy2) - 20
+            
+            self.canvas.create_rectangle(mid_x-130, mid_y-12, mid_x+130, mid_y+12, fill='#1e293b', outline=Theme.C_MARK, tags='trace')
+            self.canvas.create_text(mid_x, mid_y, text=report, fill='#ffffff', font=('Segoe UI', 10, 'bold'), tags='trace')
+
+# ------------------------------------------------------------------------
+# 6. Global State & App Shell
+# ------------------------------------------------------------------------
+class App:
+    def __init__(self, root):
+        self.root = root
+        self.root.title("DataBlade Analytics [Dark Mode & Overlay Edition]")
+        self.root.configure(bg=Theme.BG)
+        self.root.geometry("1400x850")
+        self.root.minsize(1050, 600)
+
+        self.global_datasets = {}
+        self.global_math = {}
+        self.charts = []
+        self.chart_configs = {}  
+        self.view_mode = "OVERLAY"
+        self._stats_timer = None  # Debounce timer
+
+        self._build_ui_shell()
+        self._rebuild_charts()
+
+    def _build_ui_shell(self):
+        tb = tk.Frame(self.root, bg=Theme.PNL, height=45, relief='flat')
+        tb.pack(fill='x', side='top')
+        tk.Frame(self.root, bg=Theme.BRD, height=1).pack(fill='x', side='top')
+        tb.pack_propagate(False)
+
+        tk.Label(tb, text='DATABLADE ANALYTICS', bg=Theme.PNL, fg=Theme.ACC, font=('Segoe UI', 13, 'bold')).pack(side='left', padx=15)
+        tk.Frame(tb, bg=Theme.BRD, width=1).pack(side='left', fill='y', pady=6)
+        
+        self.lbl_file_info = tk.Label(tb, text='Ready — Load CSVs to begin', bg=Theme.PNL, fg=Theme.DIM, font=('Segoe UI', 11, 'bold'))
+        self.lbl_file_info.pack(side='left', padx=15)
+
+        body = tk.Frame(self.root, bg=Theme.BG)
+        body.pack(fill='both', expand=True)
+
+        left = tk.Frame(body, bg=Theme.PNL, width=280, relief='flat')
+        left.pack(side='left', fill='y')
+        left.pack_propagate(False)
+        tk.Frame(body, bg=Theme.BRD, width=1).pack(side='left', fill='y')
+
+        def sec(title):
+            tk.Frame(left, bg=Theme.SEP, height=1).pack(fill='x')
+            f = tk.Frame(left, bg=Theme.PNL)
+            f.pack(fill='x', padx=10, pady=8)
+            tk.Label(f, text=title, bg=Theme.PNL, fg=Theme.DIM, font=('Segoe UI', 10, 'bold')).pack(anchor='w', pady=(2, 4))
+            return f
+
+        # --- Data Source Group ---
+        ds_sec = sec("DATA SOURCE")
+        tk.Button(ds_sec, text='📂  Load CSV Trace', bg=Theme.PNL2, fg=Theme.ACC, relief='flat', bd=0, font=('Segoe UI', 11, 'bold'), cursor='hand2', command=self._browse_and_load_csv).pack(fill='x', ipady=4, pady=2)
+        
+        self.line_registry_box = tk.Listbox(ds_sec, height=5, bg=Theme.PNL2, fg=Theme.FG, font=('Segoe UI', 11), selectmode='single', highlightthickness=0, bd=0)
+        self.line_registry_box.pack(fill='x', pady=4)
+        
+        self.listbox_tooltip = ListboxTooltip(self.line_registry_box, lambda v: self.global_datasets.get(v))
+        self.line_registry_box.bind('<<ListboxSelect>>', self._on_listbox_select)
+        
+        self.context_menu = tk.Menu(self.root, tearoff=0, bg=Theme.PNL, fg=Theme.FG, font=('Segoe UI', 11))
+        self.context_menu.add_command(label="⚙ Re-configure CSV Map", command=self._reconfigure_selected_line)
+        self.context_menu.add_separator()
+        self.context_menu.add_command(label="✕ Remove Trace", command=self._purge_selected_line, foreground="#dc2626")
+
+        self.line_registry_box.bind("<Button-3>", self._show_listbox_context_menu)
+        self.line_registry_box.bind("<Button-2>", self._show_listbox_context_menu)
+
+        # --- Grid Layout Controls ---
+        lay_sec = sec("LAYOUT & COMPARISON")
+        self.btn_toggle_layout = tk.Button(lay_sec, text='🗖  Split to Grid View', bg=Theme.PNL2, fg=Theme.FG, state='disabled', relief='flat', bd=0, font=('Segoe UI', 11, 'bold'), cursor='hand2', command=self._toggle_layout_mode)
+        self.btn_toggle_layout.pack(fill='x', ipady=4, pady=2)
+
+        # --- Calculus Processing ---
+        math_sec = sec("CALCULUS TOOLS")
+        self.math_target_var = tk.StringVar()
+        self.math_combo = ttk.Combobox(math_sec, textvariable=self.math_target_var, state='readonly', font=('Segoe UI', 11))
+        self.math_combo.pack(fill='x', pady=4)
+
+        tk.Button(math_sec, text='⚡ Differentiation (Slope)', bg=Theme.PNL2, fg=Theme.FG, relief='flat', bd=0, font=('Segoe UI', 11), cursor='hand2', command=self._run_derivative_pipeline).pack(fill='x', ipady=3, pady=2)
+        tk.Button(math_sec, text='∫ Integration (Area)', bg=Theme.PNL2, fg=Theme.FG, relief='flat', bd=0, font=('Segoe UI', 11), cursor='hand2', command=self._run_integral_pipeline).pack(fill='x', ipady=3, pady=2)
+        tk.Button(math_sec, text='✕ Clear Math Traces', bg=Theme.PNL2, fg='#dc2626', relief='flat', bd=0, font=('Segoe UI', 10, 'bold'), cursor='hand2', command=self._clear_math_traces).pack(fill='x', pady=2)
+
+        # --- Vector Geometry Markup ---
+        mark_sec = sec("VECTOR GEOMETRY MARKERS")
+        self.btn_toggle_marker = tk.Button(mark_sec, text='📍  Enable Point Markers', bg=Theme.PNL2, fg=Theme.FG, relief='flat', bd=0, font=('Segoe UI', 11), cursor='hand2', command=self._toggle_marker_mode)
+        self.btn_toggle_marker.pack(fill='x', ipady=3, pady=2)
+
+        # --- Pin Annotation ---
+        lbl_sec = sec("TEXT ANNOTATION")
+        self.txt_label_input = tk.Entry(lbl_sec, bg=Theme.PNL2, fg=Theme.FG, insertbackground=Theme.FG, relief='solid', bd=1, font=('Segoe UI', 11))
+        self.txt_label_input.insert(0, "Event Alpha")
+        self.txt_label_input.pack(fill='x', pady=4)
+        tk.Button(lbl_sec, text='📌  Drop Label Anchor', bg=Theme.PNL2, fg=Theme.ACC, relief='flat', bd=0, font=('Segoe UI', 11, 'bold'), cursor='hand2', command=self._arm_label_placement_mode).pack(fill='x', ipady=3)
+
+        # --- System Controls ---
+        sys_sec = sec("SYSTEM VIEWPORT")
+        tk.Button(sys_sec, text='🌙  Toggle Dark Mode', bg=Theme.PNL2, fg=Theme.FG, relief='flat', bd=0, font=('Segoe UI', 11, 'bold'), cursor='hand2', command=self._toggle_dark_mode).pack(fill='x', ipady=4, pady=2)
+
+        right = tk.Frame(body, bg=Theme.BG)
+        right.pack(side='left', fill='both', expand=True, padx=12, pady=10)
+
+        stats_frame = tk.Frame(right, bg=Theme.BG)
+        stats_frame.pack(fill='x', side='top', pady=(0, 6))
+
+        self.metric_boxes = {}
+        ordered_metrics = [('min', 'Min (Vis)'), ('max', 'Max (Vis)'), ('mean', 'Mean μ'), ('std', 'Std Dev σ'), ('count', 'Samples in View')]
+        for m_key, label_text in ordered_metrics:
+            cell = tk.Frame(stats_frame, bg=Theme.PNL, highlightthickness=1, highlightbackground=Theme.SEP)
+            cell.pack(side='left', fill='x', expand=True, padx=2)
+            tk.Label(cell, text=label_text.upper(), bg=Theme.PNL, fg=Theme.DIM, font=('Segoe UI', 9, 'bold')).pack(anchor='w', padx=8, pady=(4, 0))
+            val_lbl = tk.Label(cell, text='--', bg=Theme.PNL, fg=Theme.ACC, font=('Segoe UI', 14, 'bold'))
+            val_lbl.pack(anchor='w', padx=8, pady=(0, 4))
+            self.metric_boxes[m_key] = val_lbl
+
+        sty = ttk.Style()
+        sty.theme_use('default')
+        sty.configure('Sim.TNotebook', background=Theme.BG, borderwidth=0)
+        sty.configure('Sim.TNotebook.Tab', font=('Segoe UI', 11, 'bold'), padding=[16, 6], background=Theme.PNL2, foreground=Theme.DIM)
+        sty.map('Sim.TNotebook.Tab', background=[('selected', Theme.PNL)], foreground=[('selected', Theme.ACC)])
+
+        nb = ttk.Notebook(right, style='Sim.TNotebook')
+        nb.pack(fill='both', expand=True)
+
+        chart_tab_panel = tk.Frame(nb, bg=Theme.BG)
+        nb.add(chart_tab_panel, text='📈  High-Definition Interactive Viewports')
+
+        self.chart_container = tk.Frame(chart_tab_panel, bg=Theme.BG)
+        self.chart_container.pack(fill='both', expand=True, padx=4, pady=4)
+
+    # ------------------------------------------------------------------
+    # Dynamic Theme Engine
+    # ------------------------------------------------------------------
+    def _toggle_dark_mode(self):
+        Theme.toggle()
+        theme_map = Theme.LIGHT_TO_DARK if Theme.is_dark else Theme.DARK_TO_LIGHT
+        
+        def apply_theme_recursive(w):
+            try:
+                bg = w.cget('bg')
+                if bg.lower() in theme_map: w.config(bg=theme_map[bg.lower()])
+            except: pass
+            try:
+                fg = w.cget('fg')
+                if fg.lower() in theme_map: w.config(fg=theme_map[fg.lower()])
+            except: pass
+            try:
+                hb = w.cget('highlightbackground')
+                if hb.lower() in theme_map: w.config(highlightbackground=theme_map[hb.lower()])
+            except: pass
+            for child in w.winfo_children():
+                apply_theme_recursive(child)
+                
+        apply_theme_recursive(self.root)
+        
+        sty = ttk.Style()
+        sty.configure('Sim.TNotebook', background=Theme.BG)
+        sty.configure('Sim.TNotebook.Tab', background=Theme.PNL2, foreground=Theme.DIM)
+        sty.map('Sim.TNotebook.Tab', background=[('selected', Theme.PNL)], foreground=[('selected', Theme.ACC)])
+
+        for chart in self.charts:
+            chart.redraw()
+            
+        self._on_listbox_select(None)
+
+    # ------------------------------------------------------------------
+    # Listbox Context Menu & Selection Handlers
+    # ------------------------------------------------------------------
+    def _on_listbox_select(self, event):
+        sel = self.line_registry_box.curselection()
+        if sel:
+            d_id = self.line_registry_box.get(sel[0])
+            ds = self.global_datasets.get(d_id)
+            if ds:
+                self.lbl_file_info.config(text=f"Selected: {ds['trace_name']}  |  X: {ds['x_col']}  |  Y: {ds['y_col']}")
+        else:
+            self.lbl_file_info.config(text=f"Total Loaded: {len(self.global_datasets)} File(s)")
+
+    def _show_listbox_context_menu(self, event):
+        try:
+            index = self.line_registry_box.nearest(event.y)
+            self.line_registry_box.selection_clear(0, tk.END)
+            self.line_registry_box.selection_set(index)
+            self.line_registry_box.activate(index)
+            
+            bbox = self.line_registry_box.bbox(index)
+            if bbox and bbox[1] <= event.y <= bbox[1] + bbox[3]:
+                self.context_menu.tk_popup(event.x_root, event.y_root)
+                self._on_listbox_select(None)
+        finally:
+            self.context_menu.grab_release()
+
+    def _reconfigure_selected_line(self):
+        sel = self.line_registry_box.curselection()
+        if not sel: return
+        d_id = self.line_registry_box.get(sel[0])
+        dataset_info = self.global_datasets.get(d_id)
+        if not dataset_info: return
+        DataImportDialog(self.root, dataset_info["df"], dataset_info["filename"], self._on_import_confirmed, existing_id=d_id, existing_config=dataset_info)
+
+    def _purge_selected_line(self):
+        sel = self.line_registry_box.curselection()
+        if not sel: return
+        d_id = self.line_registry_box.get(sel[0])
+        self.line_registry_box.delete(sel[0])
+        
+        if d_id in self.global_datasets: del self.global_datasets[d_id]
+        if f"{d_id}_diff" in self.global_math: del self.global_math[f"{d_id}_diff"]
+        if f"{d_id}_int" in self.global_math: del self.global_math[f"{d_id}_int"]
+
+        self._update_selection_combos()
+        self._update_layout_button_state()
+        self._rebuild_charts()
+        self._on_listbox_select(None)
+
+    # ------------------------------------------------------------------
+    # CSV Import Workflow
+    # ------------------------------------------------------------------
+    def _browse_and_load_csv(self):
+        path = filedialog.askopenfilename(filetypes=[('CSV Datasets', '*.csv'), ('All Files', '*.*')])
+        if not path: return
+        try:
+            df = pd.read_csv(path, sep=None, engine='python', on_bad_lines='warn')
+            df.columns = [str(c).strip() for c in df.columns]
+            filename = os.path.basename(path)
+            DataImportDialog(self.root, df, filename, self._on_import_confirmed)
+        except Exception as ex:
+            messagebox.showerror('Parsing Error', f"Could not process file:\n{str(ex)}")
+
+    def _on_import_confirmed(self, filename, df, x_col, y_col, start_row, end_row, trace_name, scale, line_style, existing_id=None):
+        try:
+            subset = df.iloc[start_row:end_row].copy()
+            subset[x_col] = pd.to_numeric(subset[x_col], errors='coerce')
+            subset[y_col] = pd.to_numeric(subset[y_col], errors='coerce')
+            subset.dropna(subset=[x_col, y_col], inplace=True)
+            subset.sort_values(by=x_col, inplace=True)
+
+            x_data = subset[x_col].values
+            y_data = subset[y_col].values * scale
+
+            if len(x_data) < 2:
+                messagebox.showerror("Data Error", "Not enough valid numeric data in the selected bounds.")
+                return
+
+            if existing_id:
+                d_id = existing_id
+                assigned_color = self.global_datasets[existing_id]["color"]
+                if f"{d_id}_diff" in self.global_math: del self.global_math[f"{d_id}_diff"]
+                if f"{d_id}_int" in self.global_math: del self.global_math[f"{d_id}_int"]
+            else:
+                d_id = filename
+                base_id = d_id
+                counter = 1
+                while d_id in self.global_datasets:
+                    d_id = f"{base_id} ({counter})"
+                    counter += 1
+                assigned_color = TRACE_COLORS[self.line_registry_box.size() % len(TRACE_COLORS)]
+                self.line_registry_box.insert(tk.END, d_id)
+            
+            self.global_datasets[d_id] = {
+                "x": x_data, "y": y_data, "color": assigned_color, "df": df, "filename": filename,
+                "x_col": x_col, "y_col": y_col, "start_row": start_row, "end_row": end_row,
+                "trace_name": trace_name, "scale": scale, "line_style": line_style
+            }
+            
+            self._update_selection_combos()
+            self._update_layout_button_state()
+            self._rebuild_charts()
+            self._on_listbox_select(None)
+            
+        except Exception as ex:
+             messagebox.showerror('Import Processing Error', f"Failed extracting selected metrics:\n{str(ex)}")
+
+    def _update_selection_combos(self):
+        vals = self.line_registry_box.get(0, tk.END)
+        self.math_combo['values'] = vals
+        if vals: self.math_combo.current(0)
+        else: self.math_target_var.set("")
+
+    # ------------------------------------------------------------------
+    # Interactive Chart Editor Handling
+    # ------------------------------------------------------------------
+    def _open_chart_properties(self, chart):
+        ChartPropertiesDialog(self.root, chart, chart.chart_key, self._apply_chart_properties)
+
+    def _apply_chart_properties(self, chart_key, props, trace_names):
+        self.chart_configs[chart_key] = props
+        for t_id, new_name in trace_names.items():
+            if t_id in self.global_datasets:
+                self.global_datasets[t_id]["trace_name"] = new_name
+            elif t_id in self.global_math:
+                self.global_math[t_id]["trace_name"] = new_name
+        self._rebuild_charts()
+
+    # ------------------------------------------------------------------
+    # Dynamic Layout Engine
+    # ------------------------------------------------------------------
+    def _rebuild_charts(self):
+        for chart in self.charts:
+            chart._frame.destroy()
+        self.charts.clear()
+
+        for i in range(10):
+            self.chart_container.rowconfigure(i, weight=0)
+            self.chart_container.columnconfigure(i, weight=0)
+
+        n = len(self.global_datasets)
+        
+        if n <= 1 or self.view_mode == "OVERLAY":
+            chart = AdvancedAnalysisCanvas(self.chart_container, chart_key="OVERLAY", on_view_changed_callback=self._reprocess_visible_window_metrics, on_edit_request_callback=self._open_chart_properties, title="Combined Overlay View" if n > 0 else "")
+            chart._frame.grid(row=0, column=0, sticky='nsew')
+            self.chart_container.rowconfigure(0, weight=1)
+            self.chart_container.columnconfigure(0, weight=1)
+            
+            for d_id, data in self.global_datasets.items():
+                chart.register_dataset(d_id, data["x"], data["y"], data["color"], style=data.get("line_style", "Solid"), trace_name=data.get("trace_name", d_id))
+            for t_id, data in self.global_math.items():
+                chart.add_analysis_trace(t_id, data["x"], data["y"], data["color"], style=data.get("style", "Dashed"), trace_name=data.get("trace_name", t_id))
+            self.charts.append(chart)
+
+        else:
+            if n == 2: rows, cols = 1, 2
+            elif n <= 4: rows, cols = 2, 2
+            elif n <= 6: rows, cols = 2, 3
+            else: rows, cols = 3, 3 
+
+            for i in range(rows): self.chart_container.rowconfigure(i, weight=1)
+            for j in range(cols): self.chart_container.columnconfigure(j, weight=1)
+
+            idx = 0
+            for d_id, data in self.global_datasets.items():
+                r, c = divmod(idx, cols)
+                chart = AdvancedAnalysisCanvas(self.chart_container, chart_key=d_id, on_view_changed_callback=self._reprocess_visible_window_metrics, on_edit_request_callback=self._open_chart_properties, title=data.get("trace_name", d_id))
+                chart._frame.grid(row=r, column=c, sticky='nsew', padx=4, pady=4)
+                chart.register_dataset(d_id, data["x"], data["y"], data["color"], style=data.get("line_style", "Solid"), trace_name=data.get("trace_name", d_id))
+                
+                for t_id, m_data in self.global_math.items():
+                    if t_id.startswith(d_id):
+                        chart.add_analysis_trace(t_id, m_data["x"], m_data["y"], m_data["color"], style=m_data.get("style", "Dashed"), trace_name=m_data.get("trace_name", t_id))
+                
+                self.charts.append(chart)
+                idx += 1
+                if idx >= rows * cols: break 
+
+        for chart in self.charts:
+            chart.canvas.bind('<Left>', lambda e: self._pan_all('left', e))
+            chart.canvas.bind('<Right>', lambda e: self._pan_all('right', e))
+            chart.canvas.bind('<Up>', lambda e: self._pan_all('up', e))
+            chart.canvas.bind('<Down>', lambda e: self._pan_all('down', e))
+            
+            config = self.chart_configs.get(chart.chart_key, {})
+            chart.title = config.get("title", chart.title)
+            chart.x_label = config.get("x_label", "")
+            chart.y_label = config.get("y_label", "")
+            chart.y_min_override = config.get("y_min", None)
+            chart.y_max_override = config.get("y_max", None)
+            
+            chart.reset_global_viewport()
+
+        if self.charts:
+            self.charts[0].canvas.focus_set()
+            
+        self._reprocess_visible_window_metrics()
+
+    def _toggle_layout_mode(self):
+        if len(self.global_datasets) <= 1: return
+        if self.view_mode == "OVERLAY":
+            self.view_mode = "GRID"
+            self.btn_toggle_layout.config(text="⬒  Merge to Overlay")
+        else:
+            self.view_mode = "OVERLAY"
+            self.btn_toggle_layout.config(text="🗖  Split to Grid View")
+        self._rebuild_charts()
+
+    def _update_layout_button_state(self):
+        if len(self.global_datasets) > 1:
+            self.btn_toggle_layout.config(state='normal')
+        else:
+            self.view_mode = "OVERLAY"
+            self.btn_toggle_layout.config(text="🗖  Split to Grid View", state='disabled')
+
+    # ------------------------------------------------------------------
+    # Calculus Operations 
+    # ------------------------------------------------------------------
+    def _run_derivative_pipeline(self):
+        target = self.math_target_var.get()
+        if not target or target not in self.global_datasets: return
+        trace = self.global_datasets[target]
+        dx, dy = MathEngine.compute_derivative(trace["x"], trace["y"])
+        self.global_math[f"{target}_diff"] = {"x": dx, "y": dy, "color": '#dc2626', "style": "Dashed", "trace_name": f"d/dx ({trace['trace_name']})"}
+        self._rebuild_charts()
+
+    def _run_integral_pipeline(self):
+        target = self.math_target_var.get()
+        if not target or target not in self.global_datasets: return
+        trace = self.global_datasets[target]
+        ix, iy = MathEngine.compute_integral(trace["x"], trace["y"])
+        self.global_math[f"{target}_int"] = {"x": ix, "y": iy, "color": '#10b981', "style": "Dotted", "trace_name": f"∫ ({trace['trace_name']})"}
+        self._rebuild_charts()
+
+    def _clear_math_traces(self):
+        self.global_math.clear()
+        self._rebuild_charts()
+
+    # ------------------------------------------------------------------
+    # Canvas Action Propagators
+    # ------------------------------------------------------------------
+    def _pan_all(self, direction, event=None):
+        focused = self.root.focus_get()
+        if isinstance(focused, (tk.Entry, ttk.Combobox, tk.Listbox)): return
+        for chart in self.charts: chart.execute_pan(direction)
+
+    def _reset_chart_bounds(self):
+        for chart in self.charts: chart.reset_global_viewport()
+
+    def _toggle_marker_mode(self):
+        if not self.charts: return
+        new_mode = not self.charts[0].marker_mode
+        for chart in self.charts: chart.marker_mode = new_mode
+            
+        if new_mode: self.btn_toggle_marker.config(text="🔒 Markers Active (Click 2x)", bg=Theme.C_MARK, fg=Theme.PNL)
+        else: self.btn_toggle_marker.config(text="📍  Enable Point Markers", bg=Theme.PNL2, fg=Theme.FG)
+
+    def _clear_canvas_markers(self):
+        for chart in self.charts:
+            chart.m1 = chart.m2 = None
+            chart.redraw()
+
+    def _arm_label_placement_mode(self):
+        label_text = self.txt_label_input.get().strip()
+        if not label_text: return
+        for chart in self.charts:
+            chart.next_label_text = label_text
+            chart.label_drop_mode = True
+            chart.canvas.config(cursor="crosshair")
+
+    def _clear_text_pins(self):
+        for chart in self.charts:
+            chart.labels.clear()
+            chart.redraw()
+
+    # ------------------------------------------------------------------
+    # Aggregate Metrics Processing (Debounced for High Performance)
+    # ------------------------------------------------------------------
+    def _reprocess_visible_window_metrics(self):
+        if self._stats_timer:
+            self.root.after_cancel(self._stats_timer)
+        self._stats_timer = self.root.after(100, self._calculate_metrics_task)
+
+    def _calculate_metrics_task(self):
+        vis_pool = []
+        for chart in self.charts:
+            for trace in chart.datasets.values():
+                tx, ty = trace["x"], trace["y"]
+                if len(tx) == 0: continue
+                s_idx = np.searchsorted(tx, chart.view_xmin)
+                e_idx = np.searchsorted(tx, chart.view_xmax)
+                if s_idx < e_idx: vis_pool.append(ty[s_idx:e_idx])
+
+        if not vis_pool:
+            for k in self.metric_boxes: self.metric_boxes[k].config(text="--")
+            self.metric_boxes['count'].config(text="0")
+            return
+
+        vector = np.concatenate(vis_pool)
+        self.metric_boxes['min'].config(text=f"{vector.min():.4g}")
+        self.metric_boxes['max'].config(text=f"{vector.max():.4g}")
+        self.metric_boxes['mean'].config(text=f"{vector.mean():.4g}")
+        self.metric_boxes['std'].config(text=f"{vector.std():.4g}")
+        self.metric_boxes['count'].config(text=f"{len(vector):,}")
+
+# ------------------------------------------------------------------------
+# Startup Context
+# ------------------------------------------------------------------------
+if __name__ == '__main__':
+    root = tk.Tk()
+    
+    try:
+        from ctypes import windll
+        windll.shcore.SetProcessDpiAwareness(1)
+    except Exception:
+        pass
+    
+    app = App(root)
+    root.mainloop()

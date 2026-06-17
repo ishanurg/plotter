@@ -701,7 +701,7 @@ class AdvancedAnalysisCanvas:
 class App:
     def __init__(self, root):
         self.root = root
-        self.root.title("DataBlade Analytics [Dark Mode & Overlay Edition]")
+        self.root.title("Graph Analyzer")
         self.root.configure(bg=Theme.BG)
         self.root.geometry("1400x850")
         self.root.minsize(1050, 600)
@@ -724,7 +724,7 @@ class App:
         tk.Frame(self.root, bg=Theme.BRD, height=1).pack(fill='x', side='top')
         tb.pack_propagate(False)
 
-        tk.Label(tb, text='DATABLADE ANALYTICS', bg=Theme.PNL, fg=Theme.ACC, font=('Segoe UI', 13, 'bold')).pack(side='left', padx=15)
+        tk.Label(tb, text='GRAPH-ANALYZER', bg=Theme.PNL, fg=Theme.ACC, font=('Segoe UI', 13, 'bold')).pack(side='left', padx=15)
         tk.Frame(tb, bg=Theme.BRD, width=1).pack(side='left', fill='y', pady=6)
         
         self.lbl_file_info = tk.Label(tb, text='Ready — Load CSVs to begin', bg=Theme.PNL, fg=Theme.DIM, font=('Segoe UI', 11, 'bold'))

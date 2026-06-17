@@ -319,7 +319,7 @@ class ListboxTooltip:
         self.listbox = listbox
         self.get_data = get_data_func
         self.tw = None
-        self.current_idx = None  # Cache to prevent window recreation lag
+        self.current_idx = None
         self.listbox.bind("<Motion>", self.on_motion)
         self.listbox.bind("<Leave>", self.hide_tooltip)
 
@@ -327,11 +327,9 @@ class ListboxTooltip:
         idx = self.listbox.nearest(event.y)
         bbox = self.listbox.bbox(idx)
         if bbox and bbox[1] <= event.y <= bbox[1] + bbox[3]:
-            if self.current_idx == idx:  # Already showing tooltip for this item
-                return
+            if self.current_idx == idx: return
             self.current_idx = idx
-            val = self.listbox.get(idx)
-            data = self.get_data(val)
+            data = self.get_data(idx)
             if data:
                 text = f"Trace: {data['trace_name']}\nX: {data['x_col']} | Y: {data['y_col']}\nScale: {data['scale']}x"
                 self.show_tooltip(event, text)
@@ -703,13 +701,15 @@ class AdvancedAnalysisCanvas:
 class App:
     def __init__(self, root):
         self.root = root
-        self.root.title("Graph Analysis Dashboard")
+        self.root.title("DataBlade Analytics [Dark Mode & Overlay Edition]")
         self.root.configure(bg=Theme.BG)
         self.root.geometry("1400x850")
         self.root.minsize(1050, 600)
 
         self.global_datasets = {}
         self.global_math = {}
+        self.registry_keys = []  # Ordered list of loaded dataset IDs
+        
         self.charts = []
         self.chart_configs = {}  
         self.view_mode = "OVERLAY"
@@ -724,7 +724,7 @@ class App:
         tk.Frame(self.root, bg=Theme.BRD, height=1).pack(fill='x', side='top')
         tb.pack_propagate(False)
 
-        tk.Label(tb, text='GRAPH ANALYSIS DASHBOARD', bg=Theme.PNL, fg=Theme.ACC, font=('Segoe UI', 13, 'bold')).pack(side='left', padx=15)
+        tk.Label(tb, text='DATABLADE ANALYTICS', bg=Theme.PNL, fg=Theme.ACC, font=('Segoe UI', 13, 'bold')).pack(side='left', padx=15)
         tk.Frame(tb, bg=Theme.BRD, width=1).pack(side='left', fill='y', pady=6)
         
         self.lbl_file_info = tk.Label(tb, text='Ready — Load CSVs to begin', bg=Theme.PNL, fg=Theme.DIM, font=('Segoe UI', 11, 'bold'))
@@ -752,16 +752,23 @@ class App:
         self.line_registry_box = tk.Listbox(ds_sec, height=5, bg=Theme.PNL2, fg=Theme.FG, font=('Segoe UI', 11), selectmode='single', highlightthickness=0, bd=0)
         self.line_registry_box.pack(fill='x', pady=4)
         
-        self.listbox_tooltip = ListboxTooltip(self.line_registry_box, lambda v: self.global_datasets.get(v))
+        # Tooltip with caching for Listbox
+        self.listbox_tooltip = ListboxTooltip(self.line_registry_box, lambda idx: self.global_datasets.get(self.registry_keys[idx]) if idx < len(self.registry_keys) else None)
         self.line_registry_box.bind('<<ListboxSelect>>', self._on_listbox_select)
         
         self.context_menu = tk.Menu(self.root, tearoff=0, bg=Theme.PNL, fg=Theme.FG, font=('Segoe UI', 11))
         self.context_menu.add_command(label="⚙ Re-configure CSV Map", command=self._reconfigure_selected_line)
+        self.context_menu.add_command(label="👁 Toggle Visibility", command=self._toggle_visibility)
         self.context_menu.add_separator()
         self.context_menu.add_command(label="✕ Remove Trace", command=self._purge_selected_line, foreground="#dc2626")
 
         self.line_registry_box.bind("<Button-3>", self._show_listbox_context_menu)
         self.line_registry_box.bind("<Button-2>", self._show_listbox_context_menu)
+
+        btn_frm = tk.Frame(ds_sec, bg=Theme.PNL)
+        btn_frm.pack(fill='x', pady=1)
+        tk.Button(btn_frm, text='👁 Toggle Visibility', bg=Theme.PNL2, fg=Theme.FG, relief='flat', bd=0, font=('Segoe UI', 9, 'bold'), cursor='hand2', command=self._toggle_visibility).pack(side='left', fill='x', expand=True, padx=(0, 2))
+        tk.Button(btn_frm, text='✕ Remove Selected Trace', bg='#fef2f2', fg='#dc2626', relief='flat', bd=0, font=('Segoe UI', 9, 'bold'), cursor='hand2', command=self._purge_selected_line).pack(side='right', fill='x', expand=True, padx=(2, 0))
 
         # --- Grid Layout Controls ---
         lay_sec = sec("LAYOUT & COMPARISON")
@@ -782,6 +789,7 @@ class App:
         mark_sec = sec("VECTOR GEOMETRY MARKERS")
         self.btn_toggle_marker = tk.Button(mark_sec, text='📍  Enable Point Markers', bg=Theme.PNL2, fg=Theme.FG, relief='flat', bd=0, font=('Segoe UI', 11), cursor='hand2', command=self._toggle_marker_mode)
         self.btn_toggle_marker.pack(fill='x', ipady=3, pady=2)
+        tk.Button(mark_sec, text='🗑  Clear Vector Marks', bg=Theme.PNL2, fg=Theme.DIM, relief='flat', bd=0, font=('Segoe UI', 11), cursor='hand2', command=self._clear_canvas_markers).pack(fill='x', ipady=2, pady=2)
 
         # --- Pin Annotation ---
         lbl_sec = sec("TEXT ANNOTATION")
@@ -789,9 +797,11 @@ class App:
         self.txt_label_input.insert(0, "Event Alpha")
         self.txt_label_input.pack(fill='x', pady=4)
         tk.Button(lbl_sec, text='📌  Drop Label Anchor', bg=Theme.PNL2, fg=Theme.ACC, relief='flat', bd=0, font=('Segoe UI', 11, 'bold'), cursor='hand2', command=self._arm_label_placement_mode).pack(fill='x', ipady=3)
+        tk.Button(lbl_sec, text='✕ Wipe Labels', bg=Theme.PNL2, fg=Theme.DIM, relief='flat', bd=0, font=('Segoe UI', 10), cursor='hand2', command=self._clear_text_pins).pack(fill='x', pady=2)
 
         # --- System Controls ---
         sys_sec = sec("SYSTEM VIEWPORT")
+        tk.Button(sys_sec, text='↺  Auto-Fit Graphics', bg='#fff7ed', fg='#c2410c', relief='flat', bd=0, font=('Segoe UI', 11, 'bold'), cursor='hand2', command=self._reset_chart_bounds).pack(fill='x', ipady=4, pady=2)
         tk.Button(sys_sec, text='🌙  Toggle Dark Mode', bg=Theme.PNL2, fg=Theme.FG, relief='flat', bd=0, font=('Segoe UI', 11, 'bold'), cursor='hand2', command=self._toggle_dark_mode).pack(fill='x', ipady=4, pady=2)
 
         right = tk.Frame(body, bg=Theme.BG)
@@ -858,20 +868,37 @@ class App:
         for chart in self.charts:
             chart.redraw()
             
-        self._on_listbox_select(None)
+        self._refresh_listbox()
 
     # ------------------------------------------------------------------
     # Listbox Context Menu & Selection Handlers
     # ------------------------------------------------------------------
+    def _refresh_listbox(self):
+        """Updates the listbox display while maintaining visibility state formatting."""
+        sel = self.line_registry_box.curselection()
+        self.line_registry_box.delete(0, tk.END)
+        
+        for idx, d_id in enumerate(self.registry_keys):
+            is_vis = self.global_datasets[d_id].get("visible", True)
+            prefix = "👁 " if is_vis else "✕ [Hidden] "
+            self.line_registry_box.insert(tk.END, f"{prefix}{d_id}")
+            if not is_vis:
+                self.line_registry_box.itemconfig(idx, fg=Theme.DIM)
+                
+        if sel:
+            self.line_registry_box.selection_set(sel[0])
+
     def _on_listbox_select(self, event):
         sel = self.line_registry_box.curselection()
         if sel:
-            d_id = self.line_registry_box.get(sel[0])
+            d_id = self.registry_keys[sel[0]]
             ds = self.global_datasets.get(d_id)
             if ds:
-                self.lbl_file_info.config(text=f"Selected: {ds['trace_name']}  |  X: {ds['x_col']}  |  Y: {ds['y_col']}")
+                state = "VISIBLE" if ds.get("visible", True) else "HIDDEN"
+                self.lbl_file_info.config(text=f"Selected: {ds['trace_name']} [{state}]  |  X: {ds['x_col']}  |  Y: {ds['y_col']}")
         else:
-            self.lbl_file_info.config(text=f"Total Loaded: {len(self.global_datasets)} File(s)")
+            vis_count = sum(1 for v in self.global_datasets.values() if v.get("visible", True))
+            self.lbl_file_info.config(text=f"Total Loaded: {len(self.global_datasets)} File(s)  ({vis_count} Visible)")
 
     def _show_listbox_context_menu(self, event):
         try:
@@ -890,7 +917,7 @@ class App:
     def _reconfigure_selected_line(self):
         sel = self.line_registry_box.curselection()
         if not sel: return
-        d_id = self.line_registry_box.get(sel[0])
+        d_id = self.registry_keys[sel[0]]
         dataset_info = self.global_datasets.get(d_id)
         if not dataset_info: return
         DataImportDialog(self.root, dataset_info["df"], dataset_info["filename"], self._on_import_confirmed, existing_id=d_id, existing_config=dataset_info)
@@ -898,14 +925,31 @@ class App:
     def _purge_selected_line(self):
         sel = self.line_registry_box.curselection()
         if not sel: return
-        d_id = self.line_registry_box.get(sel[0])
-        self.line_registry_box.delete(sel[0])
+        
+        d_id = self.registry_keys[sel[0]]
+        del self.registry_keys[sel[0]]
         
         if d_id in self.global_datasets: del self.global_datasets[d_id]
-        if f"{d_id}_diff" in self.global_math: del self.global_math[f"{d_id}_diff"]
-        if f"{d_id}_int" in self.global_math: del self.global_math[f"{d_id}_int"]
+        
+        # Cleanup associated math traces
+        keys_to_delete = [k for k in self.global_math if k.startswith(d_id)]
+        for k in keys_to_delete: del self.global_math[k]
 
+        self._refresh_listbox()
         self._update_selection_combos()
+        self._update_layout_button_state()
+        self._rebuild_charts()
+        self._on_listbox_select(None)
+
+    def _toggle_visibility(self):
+        sel = self.line_registry_box.curselection()
+        if not sel: return
+        
+        d_id = self.registry_keys[sel[0]]
+        is_visible = self.global_datasets[d_id].get("visible", True)
+        self.global_datasets[d_id]["visible"] = not is_visible
+        
+        self._refresh_listbox()
         self._update_layout_button_state()
         self._rebuild_charts()
         self._on_listbox_select(None)
@@ -942,8 +986,11 @@ class App:
             if existing_id:
                 d_id = existing_id
                 assigned_color = self.global_datasets[existing_id]["color"]
-                if f"{d_id}_diff" in self.global_math: del self.global_math[f"{d_id}_diff"]
-                if f"{d_id}_int" in self.global_math: del self.global_math[f"{d_id}_int"]
+                was_visible = self.global_datasets[existing_id].get("visible", True)
+                
+                # Cleanup associated math traces
+                keys_to_delete = [k for k in self.global_math if k.startswith(d_id)]
+                for k in keys_to_delete: del self.global_math[k]
             else:
                 d_id = filename
                 base_id = d_id
@@ -951,15 +998,18 @@ class App:
                 while d_id in self.global_datasets:
                     d_id = f"{base_id} ({counter})"
                     counter += 1
-                assigned_color = TRACE_COLORS[self.line_registry_box.size() % len(TRACE_COLORS)]
-                self.line_registry_box.insert(tk.END, d_id)
+                assigned_color = TRACE_COLORS[len(self.registry_keys) % len(TRACE_COLORS)]
+                self.registry_keys.append(d_id)
+                was_visible = True
             
             self.global_datasets[d_id] = {
                 "x": x_data, "y": y_data, "color": assigned_color, "df": df, "filename": filename,
                 "x_col": x_col, "y_col": y_col, "start_row": start_row, "end_row": end_row,
-                "trace_name": trace_name, "scale": scale, "line_style": line_style
+                "trace_name": trace_name, "scale": scale, "line_style": line_style,
+                "visible": was_visible
             }
             
+            self._refresh_listbox()
             self._update_selection_combos()
             self._update_layout_button_state()
             self._rebuild_charts()
@@ -969,7 +1019,7 @@ class App:
              messagebox.showerror('Import Processing Error', f"Failed extracting selected metrics:\n{str(ex)}")
 
     def _update_selection_combos(self):
-        vals = self.line_registry_box.get(0, tk.END)
+        vals = [self.global_datasets[k]["trace_name"] for k in self.registry_keys]
         self.math_combo['values'] = vals
         if vals: self.math_combo.current(0)
         else: self.math_target_var.set("")
@@ -1001,7 +1051,9 @@ class App:
             self.chart_container.rowconfigure(i, weight=0)
             self.chart_container.columnconfigure(i, weight=0)
 
-        n = len(self.global_datasets)
+        # Only count and layout VISIBLE datasets
+        vis_datasets = {k: v for k, v in self.global_datasets.items() if v.get("visible", True)}
+        n = len(vis_datasets)
         
         if n <= 1 or self.view_mode == "OVERLAY":
             chart = AdvancedAnalysisCanvas(self.chart_container, chart_key="OVERLAY", on_view_changed_callback=self._reprocess_visible_window_metrics, on_edit_request_callback=self._open_chart_properties, title="Combined Overlay View" if n > 0 else "")
@@ -1009,10 +1061,15 @@ class App:
             self.chart_container.rowconfigure(0, weight=1)
             self.chart_container.columnconfigure(0, weight=1)
             
-            for d_id, data in self.global_datasets.items():
+            for d_id, data in vis_datasets.items():
                 chart.register_dataset(d_id, data["x"], data["y"], data["color"], style=data.get("line_style", "Solid"), trace_name=data.get("trace_name", d_id))
-            for t_id, data in self.global_math.items():
-                chart.add_analysis_trace(t_id, data["x"], data["y"], data["color"], style=data.get("style", "Dashed"), trace_name=data.get("trace_name", t_id))
+            
+            for t_id, m_data in self.global_math.items():
+                # Extract parent ID to check visibility
+                parent_id = t_id.replace("_diff", "").replace("_int", "")
+                if self.global_datasets.get(parent_id, {}).get("visible", True):
+                    chart.add_analysis_trace(t_id, m_data["x"], m_data["y"], m_data["color"], style=m_data.get("style", "Dashed"), trace_name=m_data.get("trace_name", t_id))
+            
             self.charts.append(chart)
 
         else:
@@ -1025,7 +1082,7 @@ class App:
             for j in range(cols): self.chart_container.columnconfigure(j, weight=1)
 
             idx = 0
-            for d_id, data in self.global_datasets.items():
+            for d_id, data in vis_datasets.items():
                 r, c = divmod(idx, cols)
                 chart = AdvancedAnalysisCanvas(self.chart_container, chart_key=d_id, on_view_changed_callback=self._reprocess_visible_window_metrics, on_edit_request_callback=self._open_chart_properties, title=data.get("trace_name", d_id))
                 chart._frame.grid(row=r, column=c, sticky='nsew', padx=4, pady=4)
@@ -1060,7 +1117,9 @@ class App:
         self._reprocess_visible_window_metrics()
 
     def _toggle_layout_mode(self):
-        if len(self.global_datasets) <= 1: return
+        vis_count = sum(1 for v in self.global_datasets.values() if v.get("visible", True))
+        if vis_count <= 1: return
+        
         if self.view_mode == "OVERLAY":
             self.view_mode = "GRID"
             self.btn_toggle_layout.config(text="⬒  Merge to Overlay")
@@ -1070,7 +1129,8 @@ class App:
         self._rebuild_charts()
 
     def _update_layout_button_state(self):
-        if len(self.global_datasets) > 1:
+        vis_count = sum(1 for v in self.global_datasets.values() if v.get("visible", True))
+        if vis_count > 1:
             self.btn_toggle_layout.config(state='normal')
         else:
             self.view_mode = "OVERLAY"
@@ -1080,16 +1140,20 @@ class App:
     # Calculus Operations 
     # ------------------------------------------------------------------
     def _run_derivative_pipeline(self):
-        target = self.math_target_var.get()
-        if not target or target not in self.global_datasets: return
+        idx = self.math_combo.current()
+        if idx < 0 or idx >= len(self.registry_keys): return
+        target = self.registry_keys[idx]
+        
         trace = self.global_datasets[target]
         dx, dy = MathEngine.compute_derivative(trace["x"], trace["y"])
         self.global_math[f"{target}_diff"] = {"x": dx, "y": dy, "color": '#dc2626', "style": "Dashed", "trace_name": f"d/dx ({trace['trace_name']})"}
         self._rebuild_charts()
 
     def _run_integral_pipeline(self):
-        target = self.math_target_var.get()
-        if not target or target not in self.global_datasets: return
+        idx = self.math_combo.current()
+        if idx < 0 or idx >= len(self.registry_keys): return
+        target = self.registry_keys[idx]
+        
         trace = self.global_datasets[target]
         ix, iy = MathEngine.compute_integral(trace["x"], trace["y"])
         self.global_math[f"{target}_int"] = {"x": ix, "y": iy, "color": '#10b981', "style": "Dotted", "trace_name": f"∫ ({trace['trace_name']})"}

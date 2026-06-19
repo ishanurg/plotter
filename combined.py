@@ -1,9 +1,12 @@
 import tkinter as tk
-from tkinter import filedialog, messagebox, ttk
+from tkinter import filedialog, messagebox, ttk, simpledialog
 import numpy as np
 import pandas as pd
 import os
 import math
+import subprocess
+import json
+from datetime import datetime
 
 # ------------------------------------------------------------------------
 # 1. Global Theme Architecture
@@ -48,7 +51,44 @@ class Theme:
 TRACE_COLORS = ['#2563eb', '#10b981', '#f59e0b', '#dc2626', '#7c3aed', '#db2777', '#06b6d4', '#059669']
 
 # ------------------------------------------------------------------------
-# 2. Interactive Chart Properties Editor (Legends, Titles, Scaling)
+# 2. Native Git Version Control Engine
+# ------------------------------------------------------------------------
+class GitEngine:
+    @staticmethod
+    def is_git_installed():
+        try:
+            subprocess.run(["git", "--version"], stdout=subprocess.PIPE, stderr=subprocess.PIPE, check=True)
+            return True
+        except (subprocess.CalledProcessError, FileNotFoundError):
+            return False
+
+    @staticmethod
+    def init_repo(workspace_dir):
+        try:
+            res = subprocess.run(["git", "init"], cwd=workspace_dir, stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True, check=True)
+            return True, res.stdout
+        except subprocess.CalledProcessError as e:
+            return False, e.stderr
+
+    @staticmethod
+    def commit_state(workspace_dir, message):
+        try:
+            subprocess.run(["git", "add", "."], cwd=workspace_dir, stdout=subprocess.PIPE, stderr=subprocess.PIPE, check=True)
+            res = subprocess.run(["git", "commit", "-m", message], cwd=workspace_dir, stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True, check=True)
+            return True, res.stdout
+        except subprocess.CalledProcessError as e:
+            return False, e.stderr
+
+    @staticmethod
+    def get_status(workspace_dir):
+        try:
+            res = subprocess.run(["git", "status"], cwd=workspace_dir, stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True, check=True)
+            return True, res.stdout
+        except subprocess.CalledProcessError as e:
+            return False, e.stderr
+
+# ------------------------------------------------------------------------
+# 3. Interactive Chart Properties Editor (Legends, Titles, Scaling)
 # ------------------------------------------------------------------------
 class ChartPropertiesDialog(tk.Toplevel):
     def __init__(self, parent, chart_obj, chart_key, callback):
@@ -156,7 +196,7 @@ class ChartPropertiesDialog(tk.Toplevel):
         self.destroy()
 
 # ------------------------------------------------------------------------
-# 3. Spreadsheet CSV Import Dialog
+# 4. Spreadsheet CSV Import Dialog
 # ------------------------------------------------------------------------
 class DataImportDialog(tk.Toplevel):
     def __init__(self, parent, df, filename, callback, existing_id=None, existing_config=None):
@@ -312,7 +352,7 @@ class DataImportDialog(tk.Toplevel):
         self.destroy()
 
 # ------------------------------------------------------------------------
-# 4. Canvas Hover Tooltip System (Optimized with Caching)
+# 5. Canvas Hover Tooltip System (Optimized with Caching)
 # ------------------------------------------------------------------------
 class ListboxTooltip:
     def __init__(self, listbox, get_data_func):
@@ -354,7 +394,7 @@ class ListboxTooltip:
         self.current_idx = None
 
 # ------------------------------------------------------------------------
-# 5. Math Engine & High Performance Canvas
+# 6. Math Engine & High Performance Canvas
 # ------------------------------------------------------------------------
 class MathEngine:
     @staticmethod
@@ -428,6 +468,12 @@ class AdvancedAnalysisCanvas:
         
         self.canvas.bind('<Button-3>', self._show_context_menu)
         self.canvas.bind('<Button-2>', self._show_context_menu)
+        
+        # Isolated arrow key panning!
+        self.canvas.bind('<Left>', lambda e: self.execute_pan('left'))
+        self.canvas.bind('<Right>', lambda e: self.execute_pan('right'))
+        self.canvas.bind('<Up>', lambda e: self.execute_pan('up'))
+        self.canvas.bind('<Down>', lambda e: self.execute_pan('down'))
 
     def _show_context_menu(self, e):
         self.canvas.focus_set()
@@ -696,24 +742,24 @@ class AdvancedAnalysisCanvas:
             self.canvas.create_text(mid_x, mid_y, text=report, fill='#ffffff', font=('Segoe UI', 10, 'bold'), tags='trace')
 
 # ------------------------------------------------------------------------
-# 6. Global State & App Shell
+# 7. Global State & App Shell
 # ------------------------------------------------------------------------
 class App:
     def __init__(self, root):
         self.root = root
-        self.root.title("Graph Analyzer")
+        self.root.title("Graph Analytics Dashboard")
         self.root.configure(bg=Theme.BG)
         self.root.geometry("1400x850")
         self.root.minsize(1050, 600)
 
         self.global_datasets = {}
         self.global_math = {}
-        self.registry_keys = []  # Ordered list of loaded dataset IDs
+        self.registry_keys = []  
         
         self.charts = []
         self.chart_configs = {}  
         self.view_mode = "OVERLAY"
-        self._stats_timer = None  # Debounce timer
+        self._stats_timer = None  
 
         self._build_ui_shell()
         self._rebuild_charts()
@@ -724,7 +770,7 @@ class App:
         tk.Frame(self.root, bg=Theme.BRD, height=1).pack(fill='x', side='top')
         tb.pack_propagate(False)
 
-        tk.Label(tb, text='GRAPH-ANALYZER', bg=Theme.PNL, fg=Theme.ACC, font=('Segoe UI', 13, 'bold')).pack(side='left', padx=15)
+        tk.Label(tb, text='GRAPH ANALYTICS', bg=Theme.PNL, fg=Theme.ACC, font=('Segoe UI', 13, 'bold')).pack(side='left', padx=15)
         tk.Frame(tb, bg=Theme.BRD, width=1).pack(side='left', fill='y', pady=6)
         
         self.lbl_file_info = tk.Label(tb, text='Ready — Load CSVs to begin', bg=Theme.PNL, fg=Theme.DIM, font=('Segoe UI', 11, 'bold'))
@@ -752,7 +798,6 @@ class App:
         self.line_registry_box = tk.Listbox(ds_sec, height=5, bg=Theme.PNL2, fg=Theme.FG, font=('Segoe UI', 11), selectmode='single', highlightthickness=0, bd=0)
         self.line_registry_box.pack(fill='x', pady=4)
         
-        # Tooltip with caching for Listbox
         self.listbox_tooltip = ListboxTooltip(self.line_registry_box, lambda idx: self.global_datasets.get(self.registry_keys[idx]) if idx < len(self.registry_keys) else None)
         self.line_registry_box.bind('<<ListboxSelect>>', self._on_listbox_select)
         
@@ -874,7 +919,6 @@ class App:
     # Listbox Context Menu & Selection Handlers
     # ------------------------------------------------------------------
     def _refresh_listbox(self):
-        """Updates the listbox display while maintaining visibility state formatting."""
         sel = self.line_registry_box.curselection()
         self.line_registry_box.delete(0, tk.END)
         
@@ -931,7 +975,6 @@ class App:
         
         if d_id in self.global_datasets: del self.global_datasets[d_id]
         
-        # Cleanup associated math traces
         keys_to_delete = [k for k in self.global_math if k.startswith(d_id)]
         for k in keys_to_delete: del self.global_math[k]
 
@@ -988,7 +1031,6 @@ class App:
                 assigned_color = self.global_datasets[existing_id]["color"]
                 was_visible = self.global_datasets[existing_id].get("visible", True)
                 
-                # Cleanup associated math traces
                 keys_to_delete = [k for k in self.global_math if k.startswith(d_id)]
                 for k in keys_to_delete: del self.global_math[k]
             else:
@@ -1051,7 +1093,6 @@ class App:
             self.chart_container.rowconfigure(i, weight=0)
             self.chart_container.columnconfigure(i, weight=0)
 
-        # Only count and layout VISIBLE datasets
         vis_datasets = {k: v for k, v in self.global_datasets.items() if v.get("visible", True)}
         n = len(vis_datasets)
         
@@ -1065,7 +1106,6 @@ class App:
                 chart.register_dataset(d_id, data["x"], data["y"], data["color"], style=data.get("line_style", "Solid"), trace_name=data.get("trace_name", d_id))
             
             for t_id, m_data in self.global_math.items():
-                # Extract parent ID to check visibility
                 parent_id = t_id.replace("_diff", "").replace("_int", "")
                 if self.global_datasets.get(parent_id, {}).get("visible", True):
                     chart.add_analysis_trace(t_id, m_data["x"], m_data["y"], m_data["color"], style=m_data.get("style", "Dashed"), trace_name=m_data.get("trace_name", t_id))
@@ -1097,11 +1137,6 @@ class App:
                 if idx >= rows * cols: break 
 
         for chart in self.charts:
-            chart.canvas.bind('<Left>', lambda e: self._pan_all('left', e))
-            chart.canvas.bind('<Right>', lambda e: self._pan_all('right', e))
-            chart.canvas.bind('<Up>', lambda e: self._pan_all('up', e))
-            chart.canvas.bind('<Down>', lambda e: self._pan_all('down', e))
-            
             config = self.chart_configs.get(chart.chart_key, {})
             chart.title = config.get("title", chart.title)
             chart.x_label = config.get("x_label", "")
@@ -1166,11 +1201,6 @@ class App:
     # ------------------------------------------------------------------
     # Canvas Action Propagators
     # ------------------------------------------------------------------
-    def _pan_all(self, direction, event=None):
-        focused = self.root.focus_get()
-        if isinstance(focused, (tk.Entry, ttk.Combobox, tk.Listbox)): return
-        for chart in self.charts: chart.execute_pan(direction)
-
     def _reset_chart_bounds(self):
         for chart in self.charts: chart.reset_global_viewport()
 
